@@ -829,11 +829,26 @@ header{
         ↺ 초기화
       </button>
     </div>
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
 
-    <button class="save-btn" style="margin-top:20px" onclick="closeSettings()">닫기</button>
-  </div>
-</div>
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyBeE5xE3PhGD1O3QIyrIo6CcwKPgw-QYHI",
+    authDomain: "phrasalflip-1b79f.firebaseapp.com",
+    projectId: "phrasalflip-1b79f",
+    storageBucket: "phrasalflip-1b79f.firebasestorage.app",
+    messagingSenderId: "944035035021",
+    appId: "1:944035035021:web:41160f690ca36df95defc4",
+    measurementId: "G-Y27TNPPXSY"
+  };
 
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
 
 <script>
 // ═══════════════════════════════════════════════
