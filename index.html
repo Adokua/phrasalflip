@@ -647,6 +647,14 @@ header{
   </div>
 </div>
 
+<!-- Firebase 로딩 화면 -->
+<div id="fbLoading" style="position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+  <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:900;color:var(--text);">Phrasal<em style="color:var(--accent);font-style:normal;">Flip</em></div>
+  <div style="width:40px;height:40px;border:3px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;"></div>
+  <div style="font-size:12px;color:var(--dim);">동기화 중...</div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
 <!-- CARD ROW: side buttons + card -->
 <div class="card-row">
   <button class="side-btn" onclick="prevCard()">‹</button>
@@ -830,24 +838,39 @@ header{
       </button>
     </div>
 <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 
-  // Your web app's Firebase configuration
-  const firebaseConfig = {
-    apiKey: "AIzaSyBeE5xE3PhGD1O3QIyrIo6CcwKPgw-QYHI",
-    authDomain: "phrasalflip-1b79f.firebaseapp.com",
-    projectId: "phrasalflip-1b79f",
-    storageBucket: "phrasalflip-1b79f.firebasestorage.app",
-    messagingSenderId: "944035035021",
-    appId: "1:944035035021:web:41160f690ca36df95defc4",
-    measurementId: "G-Y27TNPPXSY"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyBeE5xE3PhGD1O3QIyrIo6CcwKPgw-QYHI",
+  authDomain: "phrasalflip-1b79f.firebaseapp.com",
+  projectId: "phrasalflip-1b79f",
+  storageBucket: "phrasalflip-1b79f.firebasestorage.app",
+  messagingSenderId: "944035035021",
+  appId: "1:944035035021:web:41160f690ca36df95defc4"
+};
 
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const analytics = getAnalytics(app);
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+const auth = getAuth(app);
+
+// 전역 노출 — 메인 스크립트에서 사용
+window._fbDb  = db;
+window._fbDoc = doc;
+window._fbSet = setDoc;
+window._fbGet = getDoc;
+window._fbUid = null;
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    window._fbUid = user.uid;
+    // Firebase에서 데이터 로드 후 앱 초기화
+    await window._fbLoadAndInit();
+  } else {
+    signInAnonymously(auth).catch(e => console.error("익명 로그인 실패:", e));
+  }
+});
 </script>
 
 <script>
@@ -2075,35 +2098,63 @@ let posMap={};
 function posKey(){ return `${curMode}__${curLevel}`; }
 let alarmTimer=null; // 미사용 (알람 기능 제거)
 
-function loadData(){
-  const r=localStorage.getItem('pf2_results');
-  if(r) results=JSON.parse(r);
-  // posMap 복원 (모드별 위치)
-  const pm=localStorage.getItem('pf2_posmap');
-  if(pm) posMap=JSON.parse(pm);
-  // 모드/레벨은 항상 전체 ALL로 시작, 카드 ID로 위치 복원
-  curLevel='all';
-  curMode='all';
-  const pos=JSON.parse(localStorage.getItem('pf2_pos')||'{}');
-  // cardId가 있으면 우선 사용, 없으면 기존 idx 방식
-  if(pos.cardId!==undefined) _savedCardId=pos.cardId;
-  else if(pos.idx!==undefined) _savedIdx=pos.idx;
+// ═══════════════════════════════════════════════
+// FIREBASE LOAD / SAVE
+// ═══════════════════════════════════════════════
+
+// Firebase 로드 완료 후 앱 초기화 (module 스크립트에서 호출)
+window._fbLoadAndInit = async function(){
+  try {
+    const ref = window._fbDoc(window._fbDb, "users", window._fbUid);
+    const snap = await window._fbGet(ref);
+    if(snap.exists()){
+      const d = snap.data();
+      if(d.results)  results = d.results;
+      if(d.posMap)   posMap  = d.posMap;
+      if(d.streak)   _fbStreak = d.streak;
+      if(d.log)      _fbLog    = d.log;
+      curLevel='all'; curMode='all';
+      const pos = d.pos || {};
+      if(pos.cardId !== undefined) _savedCardId = pos.cardId;
+      else if(pos.idx !== undefined) _savedIdx = pos.idx;
+    }
+  } catch(e){ console.warn("Firebase 로드 실패, 로컬 사용:", e); }
+
+  // 로딩 화면 숨기기
+  document.getElementById('fbLoading')?.remove();
+
+  // UI 초기화
+  document.querySelectorAll('.lvl-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('.lvl-tab[data-lv="all"]').classList.add('active');
+  document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.mtab')[0].classList.add('active');
+  document.getElementById('sublvRow')?.classList.remove('visible');
+
+  buildDeck(); renderCard(false); loadStreak();
+};
+
+// Firebase에 저장하는 공통 함수
+async function _fbSave(data){
+  if(!window._fbUid) return;
+  try {
+    const ref = window._fbDoc(window._fbDb, "users", window._fbUid);
+    await window._fbSet(ref, data, {merge:true});
+  } catch(e){ console.warn("Firebase 저장 실패:", e); }
 }
 
-function save(){
-  localStorage.setItem('pf2_results',JSON.stringify(results));
+async function loadData(){
+  // Firebase 인증 전엔 아무것도 안 함 (_fbLoadAndInit이 담당)
 }
 
-function savePos(){
-  // 실제 카드 ID(CARDS 배열 인덱스)로 저장 — 모드 바뀌어도 정확히 복원
+async function save(){
+  await _fbSave({ results });
+}
+
+async function savePos(){
   const cardId = deck[curIdx] ?? 0;
   posMap[posKey()] = curIdx;
-  localStorage.setItem('pf2_posmap', JSON.stringify(posMap));
-  localStorage.setItem('pf2_pos', JSON.stringify({
-    level: curLevel, mode: curMode,
-    idx: curIdx,
-    cardId: cardId   // ← 실제 카드 ID 추가 저장
-  }));
+  const pos = { level:curLevel, mode:curMode, idx:curIdx, cardId };
+  await _fbSave({ posMap, pos });
 }
 
 // ═══════════════════════════════════════════════
@@ -2475,18 +2526,19 @@ function _todayKey(){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+// Firebase용 임시 저장소 (loadData에서 채워짐)
+let _fbStreak = {days:0, last:''};
+let _fbLog    = {};
+
 function saveLogEntry(cardIdx, knew){
-  const key='pf2_log';
-  const log=JSON.parse(localStorage.getItem(key)||'{}');
   const today=_todayKey();
-  if(!log[today]) log[today]={done:[],review:[]};
-  const list=knew?log[today].done:log[today].review;
+  if(!_fbLog[today]) _fbLog[today]={done:[],review:[]};
+  const list=knew?_fbLog[today].done:_fbLog[today].review;
   if(!list.includes(cardIdx)) list.push(cardIdx);
-  // 상태가 바뀌면 반대 목록에서 제거
-  const other=knew?log[today].review:log[today].done;
+  const other=knew?_fbLog[today].review:_fbLog[today].done;
   const oi=other.indexOf(cardIdx);
   if(oi>=0) other.splice(oi,1);
-  localStorage.setItem(key,JSON.stringify(log));
+  _fbSave({ log: _fbLog });
 }
 
 function openStudyLog(){
@@ -2508,7 +2560,7 @@ function setLogTab(t){
 
 function renderLog(){
   const list=document.getElementById('logList');
-  const log=JSON.parse(localStorage.getItem('pf2_log')||'{}');
+  const log=_fbLog;
   const today=_todayKey();
   const lvNames=['','기초','초중급','중급','고급'];
 
@@ -2636,12 +2688,10 @@ function copyToClipboard(){
 
 function exportBackup(){
   const data = {
-    results:  JSON.parse(localStorage.getItem('pf2_results') || '{}'),
-    posmap:   JSON.parse(localStorage.getItem('pf2_posmap')  || '{}'),
-    pos:      JSON.parse(localStorage.getItem('pf2_pos')     || '{}'),
-    streak:   JSON.parse(localStorage.getItem('pf2_streak')  || '{}'),
-    settings: JSON.parse(localStorage.getItem('pf2_settings')|| '{}'),
-    log:      JSON.parse(localStorage.getItem('pf2_log')     || '{}'),
+    results,
+    posmap:  posMap,
+    streak:  _fbStreak,
+    log:     _fbLog,
     date: new Date().toLocaleDateString('ko-KR')
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -2658,17 +2708,16 @@ function importBackup(e){
   const file = e.target.files[0];
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async ev => {
     try{
       const data = JSON.parse(ev.target.result);
-      if(data.results)  localStorage.setItem('pf2_results',  JSON.stringify(data.results));
-      if(data.posmap)   localStorage.setItem('pf2_posmap',   JSON.stringify(data.posmap));
-      if(data.pos)      localStorage.setItem('pf2_pos',      JSON.stringify(data.pos));
-      if(data.streak)   localStorage.setItem('pf2_streak',   JSON.stringify(data.streak));
-      if(data.settings) localStorage.setItem('pf2_settings', JSON.stringify(data.settings));
-      if(data.log)      localStorage.setItem('pf2_log',      JSON.stringify(data.log));
-      // 즉시 반영
-      loadData(); buildDeck(); renderCard(false); loadStreak();
+      if(data.results) results   = data.results;
+      if(data.posmap)  posMap    = data.posmap;
+      if(data.streak)  _fbStreak = data.streak;
+      if(data.log)     _fbLog    = data.log;
+      // Firebase에 즉시 저장
+      await _fbSave({ results, posMap, streak:_fbStreak, log:_fbLog });
+      buildDeck(); renderCard(false); loadStreak();
       showToast('✅ 복원 완료! 데이터가 돌아왔어요.');
       closeSettings();
     } catch(err){
@@ -2682,33 +2731,26 @@ function importBackup(e){
 
 function loadStreak(){
   const today=new Date().toDateString();
-  const s=JSON.parse(localStorage.getItem('pf2_streak')||'{"days":0,"last":""}');
+  const s=_fbStreak;
   const yesterday=new Date(Date.now()-86400000).toDateString();
-  if(s.last===today){
-    // 오늘 이미 공부함
-  } else if(s.last===yesterday){
-    // 어제 공부 → 연속 유지, 오늘 표시는 첫 완료 시 업데이트
-  } else if(s.last!==today){
-    // 하루 이상 지남 → 리셋
-    s.days=0;
-  }
+  if(s.last!==today && s.last!==yesterday) s.days=0;
   document.getElementById('streakDays').textContent=s.days;
   return s;
 }
 
 function updateStreak(increment){
   const today=new Date().toDateString();
-  const s=JSON.parse(localStorage.getItem('pf2_streak')||'{"days":0,"last":""}');
+  const s=_fbStreak;
   const yesterday=new Date(Date.now()-86400000).toDateString();
   if(increment){
     if(s.last!==today){
       s.days = (s.last===yesterday) ? s.days+1 : 1;
       s.last=today;
-      localStorage.setItem('pf2_streak',JSON.stringify(s));
+      _fbSave({ streak: s });
     }
   } else {
     s.days=0; s.last='';
-    localStorage.setItem('pf2_streak',JSON.stringify(s));
+    _fbSave({ streak: s });
   }
   document.getElementById('streakDays').textContent=s.days;
   return s.days;
@@ -3083,9 +3125,9 @@ function renderVocabHeader(){
 }
 
 
-loadData();
+loadData(); // 아무것도 안 함 — Firebase 인증 후 _fbLoadAndInit이 담당
 
-// 항상 전체 ALL로 시작
+// 항상 전체 ALL로 시작 (UI만 미리 세팅)
 (function(){
   document.querySelectorAll('.lvl-tab').forEach(t=>t.classList.remove('active'));
   document.querySelector('.lvl-tab[data-lv="all"]').classList.add('active');
@@ -3094,7 +3136,13 @@ loadData();
   document.getElementById('sublvRow')?.classList.remove('visible');
 })();
 
-buildDeck(); renderCard(false); loadStreak();
+// Firebase 인증 대기 중 로딩 표시 (3초 이상 걸리면 그냥 시작)
+const _fbTimeout = setTimeout(()=>{
+  if(!window._fbUid){
+    document.getElementById('fbLoading')?.remove();
+    buildDeck(); renderCard(false); loadStreak();
+  }
+}, 3000);
 
 // ── Service Worker 등록 (PWA 오프라인 지원) ──
 if('serviceWorker' in navigator){
