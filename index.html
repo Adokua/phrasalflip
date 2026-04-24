@@ -536,6 +536,18 @@ header{
 .vword{
   font-family:'Playfair Display',serif;
   font-size:18px;font-weight:700;color:var(--text);
+  display:flex;align-items:center;gap:6px;
+}
+.vword-num{
+  font-family:'DM Sans',sans-serif;
+  font-size:13px;font-weight:600;
+  color:var(--dim2);letter-spacing:0.5px;
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:28px;height:24px;
+  background:rgba(138,154,184,.08);
+  border:1px solid rgba(138,154,184,.2);
+  border-radius:6px;
+  flex-shrink:0;
 }
 .vlv-chip{
   font-size:9px;font-weight:700;letter-spacing:1px;
@@ -2351,22 +2363,25 @@ function markCard(knew){
 // ═══════════════════════════════════════════════
 let _voices = [];
 function _loadVoices(){
-  _voices = window.speechSynthesis.getVoices();
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    _voices = voices;
+  }
 }
 if('speechSynthesis' in window){
+  if (speechSynthesis.onvoiceschanged !== undefined) {
+    speechSynthesis.onvoiceschanged = _loadVoices;
+  }
   _loadVoices();
-  window.speechSynthesis.onvoiceschanged = _loadVoices;
 }
 
 function speak(text, btnEl){
-  if(!('speechSynthesis' in window)) return;
+  if(!('speechSynthesis' in window) || !text) return;
   window.speechSynthesis.cancel();
   document.querySelectorAll('.tts-btn.speaking').forEach(b=>b.classList.remove('speaking'));
 
   const utt = new SpeechSynthesisUtterance(text);
-  utt.lang  = 'en-US';
-  utt.rate  = 0.88;
-  utt.pitch = 1.0;
+  Object.assign(utt, { lang: 'en-US', rate: 0.88, pitch: 1.0 });
 
   const voice = _voices.find(v=>v.lang==='en-US' && v.localService)
              || _voices.find(v=>v.lang==='en-US')
@@ -2957,7 +2972,7 @@ function renderVocab(){
       </div>
       <div class="vbody">
         <div class="vword-row">
-          <div class="vword"><span style="font-size:11px;color:var(--dim);margin-right:6px;font-weight:500;font-family:monospace;">[${displayNum}]</span>${c.w}</div>
+          <div class="vword"><span class="vword-num">${displayNum}</span>${c.w}</div>
           <div class="vlv-chip" data-lv="${c.lv}">LV.${c.lv} ${lvNames[c.lv]}</div>
           <div class="vcat">#${c.cat}</div>
         </div>
@@ -3073,8 +3088,19 @@ function closeVocab(){
 
 function jumpToCard(cardIdx){
   closeVocab();
-  // 현재 모드와 레벨 유지하면서 buildDeck
+  // 단어장에서 보이는 필터에 맞춰 모드 변경
+  if(vFilter==='unknown'){
+    curMode='unknown';
+  } else if(vFilter==='know'){
+    curMode='all'; // 완료 필터는 전체 모드에서 보기
+  } else {
+    curMode='all'; // 전체 필터는 전체 모드
+  }
   buildDeck();
+  // 탭 UI 업데이트 (변경된 모드 반영)
+  document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
+  const tabIdx = ['all','unknown','random'].indexOf(curMode);
+  if(tabIdx>=0) document.querySelectorAll('.mtab')[tabIdx].classList.add('active');
   // deck 안에서 해당 카드 인덱스 찾기
   const pos = deck.indexOf(cardIdx);
   if(pos>=0){
