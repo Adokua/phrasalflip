@@ -2943,11 +2943,12 @@ function renderVocab(){
     return;
   }
 
-  list.innerHTML=items.map(({c,i})=>{
+  list.innerHTML=items.map(({c,i}, idx)=>{
     const st=results[i];
     const stClass=st===true?'know':st===false?'unknown':'none';
     const stIcon=st===true?'✓':st===false?'✗':'○';
     const stLabel=st===true?'완료':st===false?'복습':'미확인';
+    const displayNum=idx+1; // 필터된 목록에서의 순번
     return `
     <div class="vcard status-${stClass}" id="vcard-${i}">
       <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;">
@@ -2956,7 +2957,7 @@ function renderVocab(){
       </div>
       <div class="vbody">
         <div class="vword-row">
-          <div class="vword">${c.w}</div>
+          <div class="vword"><span style="font-size:11px;color:var(--dim);margin-right:6px;font-weight:500;font-family:monospace;">[${displayNum}]</span>${c.w}</div>
           <div class="vlv-chip" data-lv="${c.lv}">LV.${c.lv} ${lvNames[c.lv]}</div>
           <div class="vcat">#${c.cat}</div>
         </div>
@@ -3027,8 +3028,14 @@ function openVocabAtCurrent(){
   _sfx('open');
   const cardIdx=deck[curIdx];
   _vocabHighlight=cardIdx;
-  vFilter='all'; vLevel='all';
-  document.querySelectorAll('.vf-btn').forEach(b=>b.classList.toggle('active',b.dataset.f==='all'));
+  // 현재 모드가 복습이면 복습 필터, 그 외는 전체
+  if(curMode==='unknown'){
+    vFilter='unknown';
+  } else {
+    vFilter='all';
+  }
+  vLevel='all';
+  document.querySelectorAll('.vf-btn').forEach(b=>b.classList.toggle('active',b.dataset.f===vFilter));
   document.querySelectorAll('.vlv-btn').forEach(b=>b.classList.toggle('active',b.dataset.lv==='all'));
   const searchEl=document.getElementById('vocabSearch');
   if(searchEl) searchEl.value='';
@@ -3040,6 +3047,17 @@ function openVocabAtCurrent(){
 function openVocab(){
   _sfx('open');
   _vocabHighlight=-1; // 일반 단어장 열기 시엔 하이라이트 없음
+  // 복습 모드이면 복습 필터 자동 적용
+  if(curMode==='unknown'){
+    vFilter='unknown';
+    document.querySelectorAll('.vf-btn').forEach(b=>
+      b.classList.toggle('active', b.dataset.f==='unknown'));
+  } else if(curMode==='random'){
+    // 랜덤 모드이면 필터 초기화 (모든 것 포함)
+    vFilter='all';
+    document.querySelectorAll('.vf-btn').forEach(b=>
+      b.classList.toggle('active', b.dataset.f==='all'));
+  }
   renderVocab();
   document.getElementById('vocabOv').classList.add('open');
 }
@@ -3055,21 +3073,18 @@ function closeVocab(){
 
 function jumpToCard(cardIdx){
   closeVocab();
-  // 전체 모드 + ALL 레벨로 전환
-  curMode='all';
-  curLevel='all';
-  document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.mtab')[0].classList.add('active');
-  document.querySelectorAll('.lvl-tab').forEach(t=>t.classList.remove('active'));
-  document.querySelector('.lvl-tab[data-lv="all"]').classList.add('active');
-  document.getElementById('sublvRow').classList.remove('visible');
+  // 현재 모드와 레벨 유지하면서 buildDeck
   buildDeck();
   // deck 안에서 해당 카드 인덱스 찾기
   const pos = deck.indexOf(cardIdx);
-  curIdx = pos>=0 ? pos : 0;
-  renderCard(true);
-  savePos();
-  showToast(`▶ ${CARDS[cardIdx].w} 부터 시작!`);
+  if(pos>=0){
+    curIdx = pos;
+    renderCard(true);
+    savePos();
+    showToast(`▶ ${CARDS[cardIdx].w} 부터 시작!`);
+  } else {
+    showToast('해당 카드를 찾을 수 없어요.');
+  }
 }
 
 
